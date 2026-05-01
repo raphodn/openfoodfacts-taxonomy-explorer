@@ -138,6 +138,66 @@
         let taxonomyData = {};
         let cy = null;
         let currentTaxonomy = 'categories'; // 'categories' or 'ingredients'
+        const VALID_TAXONOMIES = new Set(['categories', 'ingredients']);
+        const VALID_MODES = new Set(['ancestors', 'descendants']);
+
+        function normalizeTaxonomyParam(value) {
+            if (!value) return 'categories';
+            const normalized = value.trim().toLowerCase();
+            return VALID_TAXONOMIES.has(normalized) ? normalized : 'categories';
+        }
+
+        function normalizeModeParam(value) {
+            if (!value) return 'descendants';
+            const normalized = value.trim().toLowerCase();
+            return VALID_MODES.has(normalized) ? normalized : 'descendants';
+        }
+
+        function normalizeNodeParam(value) {
+            if (!value) return '';
+            const normalized = value.trim().toLowerCase().replace(/\s+/g, '-');
+            if (!normalized) return '';
+            return normalized.includes(':') ? normalized : `en:${normalized}`;
+        }
+
+        function readUrlState() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                taxonomy: normalizeTaxonomyParam(params.get('taxonomy')),
+                node: normalizeNodeParam(params.get('node')),
+                mode: normalizeModeParam(params.get('mode'))
+            };
+        }
+
+        function writeUrlState({ taxonomy, node, mode }, options = {}) {
+            const { replace = false } = options;
+            const params = new URLSearchParams();
+            const nextTaxonomy = normalizeTaxonomyParam(taxonomy || currentTaxonomy);
+            const nextNode = normalizeNodeParam(node);
+            const nextMode = normalizeModeParam(mode);
+
+            if (nextTaxonomy) {
+                params.set('taxonomy', nextTaxonomy);
+            }
+
+            if (nextNode) {
+                params.set('node', nextNode);
+                params.set('mode', nextMode);
+            }
+
+            const nextUrl = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname;
+            const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+            if (nextUrl === currentUrl) {
+                return;
+            }
+
+            if (replace) {
+                window.history.replaceState(null, '', nextUrl);
+            } else {
+                window.history.pushState(null, '', nextUrl);
+            }
+        }
         
         // Initialize Cytoscape with dagre layout
         function initCytoscape() {
@@ -275,7 +335,7 @@
         function visualizeCategory(categoryId, mode = 'descendants') {
             if (!taxonomyData[categoryId]) {
                 document.getElementById('info').textContent = 'Category not found';
-                return;
+                return false;
             }
             
             const related = mode === 'ancestors' ? getAncestors(categoryId) : getDescendants(categoryId);
@@ -329,6 +389,8 @@
             const modeText = mode === 'ancestors' ? 'ancestors' : 'descendants';
             document.getElementById('info').textContent = 
                 `Showing ${taxonomyData[categoryId].name} and ${related.length} ${modeText}`;
+
+            return true;
         }
         
         // Autocomplete functionality
@@ -338,6 +400,7 @@
             
             input.addEventListener('input', function() {
                 const val = this.value.toLowerCase();
+                this.dataset.categoryId = '';
                 closeAllLists();
                 if (!val) return;
                 
@@ -412,14 +475,31 @@
         
         // Initialize
         document.addEventListener('DOMContentLoaded', async function() {
+            const initialState = readUrlState();
+            currentTaxonomy = initialState.taxonomy;
+
             initCytoscape();
             setupAutocomplete();
-            await loadTaxonomy('categories');
+            document.getElementById('taxonomy-select').value = currentTaxonomy;
+            await loadTaxonomy(currentTaxonomy);
+
+            const input = document.getElementById('category-search');
+            if (initialState.node) {
+                if (taxonomyData[initialState.node]) {
+                    input.dataset.categoryId = initialState.node;
+                    input.value = taxonomyData[initialState.node].name;
+                    visualizeCategory(initialState.node, initialState.mode);
+                } else {
+                    document.getElementById('info').textContent = 'Category from URL not found in selected taxonomy';
+                    writeUrlState({ taxonomy: currentTaxonomy }, { replace: true });
+                }
+            }
             
             // Taxonomy select
             document.getElementById('taxonomy-select').addEventListener('change', async function() {
                 currentTaxonomy = this.value;
                 await loadTaxonomy(this.value);
+                writeUrlState({ taxonomy: currentTaxonomy });
             });
             
             function getCategoryId() {
@@ -437,7 +517,8 @@
                 
                 // Try with en: prefix
                 if (!categoryId && input.value) {
-                    categoryId = 'en:' + input.value.toLowerCase().replace(/\s+/g, '-');
+                    const normalizedInput = input.value.trim().toLowerCase().replace(/\s+/g, '-');
+                    categoryId = normalizedInput.includes(':') ? normalizedInput : `en:${normalizedInput}`;
                 }
                 
                 return categoryId;
@@ -447,7 +528,17 @@
                 const categoryId = getCategoryId();
                 
                 if (categoryId) {
-                    visualizeCategory(categoryId, 'descendants');
+                    input.dataset.categoryId = categoryId;
+                    if (visualizeCategory(categoryId, 'descendants')) {
+                        if (taxonomyData[categoryId]) {
+                            input.value = taxonomyData[categoryId].name;
+                        }
+                        writeUrlState({
+                            taxonomy: currentTaxonomy,
+                            node: categoryId,
+                            mode: 'descendants'
+                        });
+                    }
                 } else {
                     document.getElementById('info').textContent = 'Please select a valid category';
                 }
@@ -457,7 +548,17 @@
                 const categoryId = getCategoryId();
                 
                 if (categoryId) {
-                    visualizeCategory(categoryId, 'ancestors');
+                    input.dataset.categoryId = categoryId;
+                    if (visualizeCategory(categoryId, 'ancestors')) {
+                        if (taxonomyData[categoryId]) {
+                            input.value = taxonomyData[categoryId].name;
+                        }
+                        writeUrlState({
+                            taxonomy: currentTaxonomy,
+                            node: categoryId,
+                            mode: 'ancestors'
+                        });
+                    }
                 } else {
                     document.getElementById('info').textContent = 'Please select a valid category';
                 }
@@ -467,6 +568,28 @@
             document.getElementById('category-search').addEventListener('keydown', function(e) {
                 if (e.keyCode === 13) {
                     document.getElementById('visualize-descendants-btn').click();
+                }
+            });
+
+            window.addEventListener('popstate', async function() {
+                const state = readUrlState();
+                const taxonomySelect = document.getElementById('taxonomy-select');
+
+                if (taxonomySelect.value !== state.taxonomy || currentTaxonomy !== state.taxonomy || Object.keys(taxonomyData).length === 0) {
+                    currentTaxonomy = state.taxonomy;
+                    taxonomySelect.value = currentTaxonomy;
+                    await loadTaxonomy(currentTaxonomy);
+                }
+
+                if (state.node && taxonomyData[state.node]) {
+                    input.dataset.categoryId = state.node;
+                    input.value = taxonomyData[state.node].name;
+                    visualizeCategory(state.node, state.mode);
+                } else {
+                    input.value = '';
+                    input.dataset.categoryId = '';
+                    cy.elements().remove();
+                    document.getElementById('info').textContent = `Loaded ${Object.keys(taxonomyData).length} English ${currentTaxonomy}`;
                 }
             });
         });
