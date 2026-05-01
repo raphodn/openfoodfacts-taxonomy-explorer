@@ -45,6 +45,10 @@
             gap: 10px;
             align-items: center;
         }
+
+        #search-container.loading {
+            opacity: 0.7;
+        }
         
         #category-search {
             flex: 1;
@@ -93,6 +97,21 @@
             border-top: 1px solid #ddd;
             font-size: 14px;
             color: #666;
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        #repo-link {
+            color: #0366d6;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        #repo-link:hover {
+            text-decoration: underline;
         }
         
         .autocomplete-items {
@@ -115,23 +134,61 @@
         .autocomplete-items div:hover {
             background-color: #e9e9e9;
         }
+
+        #loader {
+            display: none;
+            margin-top: 12px;
+            font-size: 14px;
+            color: #444;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #loader.active {
+            display: inline-flex;
+        }
+
+        .loader-spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid #d9d9d9;
+            border-top-color: #007bff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 </head>
 <body>
     <div id="controls">
         <h1>Open Food Facts - Taxonomy Explorer</h1>
         <div id="search-container">
-            <input type="text" id="category-search" placeholder="Search for a category (e.g., fermented-vegetables, honeys, milks)...">
-            <select id="taxonomy-select">
+            <input type="text" id="category-search" placeholder="Search for a category (e.g., fermented-vegetables, honeys, milks)..." disabled>
+            <select id="taxonomy-select" disabled>
                 <option value="categories">Categories</option>
                 <option value="ingredients">Ingredients</option>
             </select>
-            <button id="visualize-ancestors-btn" class="visualize-btn">Visualize Ancestors</button>
-            <button id="visualize-descendants-btn" class="visualize-btn">Visualize Descendants</button>
+            <button id="visualize-ancestors-btn" class="visualize-btn" disabled>Visualize Ancestors</button>
+            <button id="visualize-descendants-btn" class="visualize-btn" disabled>Visualize Descendants</button>
+        </div>
+        <div id="loader" role="status" aria-live="polite">
+            <span class="loader-spinner" aria-hidden="true"></span>
+            <span id="loader-text">Loading taxonomy...</span>
         </div>
     </div>
     <div id="cy"></div>
-    <div id="info">Select a category to visualize its descendants in the taxonomy</div>
+    <div id="info">
+        <span id="info-text">Select a category to visualize its descendants in the taxonomy</span>
+        <a id="repo-link" href="https://github.com/raphodn/openfoodfacts-taxonomy-explorer" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </div>
 
     <script>
         // This will be populated with actual taxonomy data
@@ -198,6 +255,28 @@
                 window.history.pushState(null, '', nextUrl);
             }
         }
+
+        function setLoadingState(isLoading, taxonomyType = currentTaxonomy) {
+            const searchContainer = document.getElementById('search-container');
+            const loader = document.getElementById('loader');
+            const loaderText = document.getElementById('loader-text');
+            const categorySearch = document.getElementById('category-search');
+            const taxonomySelect = document.getElementById('taxonomy-select');
+            const ancestorsButton = document.getElementById('visualize-ancestors-btn');
+            const descendantsButton = document.getElementById('visualize-descendants-btn');
+
+            categorySearch.disabled = isLoading;
+            taxonomySelect.disabled = isLoading;
+            ancestorsButton.disabled = isLoading;
+            descendantsButton.disabled = isLoading;
+
+            searchContainer.classList.toggle('loading', isLoading);
+            loader.classList.toggle('active', isLoading);
+
+            if (isLoading) {
+                loaderText.textContent = `Loading ${taxonomyType} taxonomy...`;
+            }
+        }
         
         // Initialize Cytoscape with dagre layout
         function initCytoscape() {
@@ -253,6 +332,7 @@
         
         // Load taxonomy data from the Open Food Facts API
         async function loadTaxonomy(taxonomyType = 'categories') {
+            setLoadingState(true, taxonomyType);
             try {
                 const endpoint = taxonomyType === 'categories' 
                     ? 'https://world.openfoodfacts.org/data/taxonomies/categories.full.json'
@@ -276,14 +356,14 @@
                     }
                 }
                 
-                document.getElementById('visualize-ancestors-btn').disabled = false;
-                document.getElementById('visualize-descendants-btn').disabled = false;
                 document.getElementById('category-search').value = '';
                 document.getElementById('category-search').dataset.categoryId = '';
-                document.getElementById('info').textContent = `Loaded ${Object.keys(taxonomyData).length} English ${taxonomyType}`;
+                document.getElementById('info-text').textContent = `Loaded ${Object.keys(taxonomyData).length} English ${taxonomyType}`;
             } catch (error) {
                 console.error(`Error loading ${taxonomyType}:`, error);
-                document.getElementById('info').textContent = `Error loading ${taxonomyType} data`;
+                document.getElementById('info-text').textContent = `Error loading ${taxonomyType} data`;
+            } finally {
+                setLoadingState(false, taxonomyType);
             }
         }
         
@@ -334,7 +414,7 @@
         // Visualize category and its descendants or ancestors
         function visualizeCategory(categoryId, mode = 'descendants') {
             if (!taxonomyData[categoryId]) {
-                document.getElementById('info').textContent = 'Category not found';
+                document.getElementById('info-text').textContent = 'Category not found';
                 return false;
             }
             
@@ -387,7 +467,7 @@
             }).run();
             
             const modeText = mode === 'ancestors' ? 'ancestors' : 'descendants';
-            document.getElementById('info').textContent = 
+            document.getElementById('info-text').textContent = 
                 `Showing ${taxonomyData[categoryId].name} and ${related.length} ${modeText}`;
 
             return true;
@@ -490,7 +570,7 @@
                     input.value = taxonomyData[initialState.node].name;
                     visualizeCategory(initialState.node, initialState.mode);
                 } else {
-                    document.getElementById('info').textContent = 'Category from URL not found in selected taxonomy';
+                    document.getElementById('info-text').textContent = 'Category from URL not found in selected taxonomy';
                     writeUrlState({ taxonomy: currentTaxonomy }, { replace: true });
                 }
             }
@@ -540,7 +620,7 @@
                         });
                     }
                 } else {
-                    document.getElementById('info').textContent = 'Please select a valid category';
+                    document.getElementById('info-text').textContent = 'Please select a valid category';
                 }
             });
             
@@ -560,7 +640,7 @@
                         });
                     }
                 } else {
-                    document.getElementById('info').textContent = 'Please select a valid category';
+                    document.getElementById('info-text').textContent = 'Please select a valid category';
                 }
             });
             
@@ -589,7 +669,7 @@
                     input.value = '';
                     input.dataset.categoryId = '';
                     cy.elements().remove();
-                    document.getElementById('info').textContent = `Loaded ${Object.keys(taxonomyData).length} English ${currentTaxonomy}`;
+                    document.getElementById('info-text').textContent = `Loaded ${Object.keys(taxonomyData).length} English ${currentTaxonomy}`;
                 }
             });
         });

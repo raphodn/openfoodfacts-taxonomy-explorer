@@ -12,6 +12,14 @@
 
 ![image](screenshot_2026-02-07.png)
 
+## Run locally
+
+```bash
+git clone
+cd openfoodfacts-taxonomy-explorer
+python -m http.server 8080
+```
+
 ## Thanks to
 
 * https://github.com/goerlitz/openfoodfacts-data-analysis/blob/main/notebooks/44_category_exploration.ipynb
