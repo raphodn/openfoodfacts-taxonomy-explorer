@@ -171,10 +171,15 @@
     <div id="controls">
         <h1>Open Food Facts - Taxonomy Explorer</h1>
         <div id="search-container">
-            <input type="text" id="category-search" placeholder="Search for a category (e.g., fermented-vegetables, honeys, milks)..." disabled>
+            <input type="text" id="category-search" placeholder="Search for a taxonomy node (e.g., fermented-vegetables, honeys, milks)..." disabled>
             <select id="taxonomy-select" disabled>
-                <option value="categories">Categories</option>
+                <option value="additives">Additives</option>
+                <option value="allergens">Allergens</option>
+                <option value="categories" selected>Categories</option>
                 <option value="ingredients">Ingredients</option>
+                <option value="labels">Labels</option>
+                <option value="nutrients">Nutrients</option>
+                <option value="origins">Origins</option>
             </select>
             <button id="visualize-ancestors-btn" class="visualize-btn" disabled>Visualize Ancestors</button>
             <button id="visualize-descendants-btn" class="visualize-btn" disabled>Visualize Descendants</button>
@@ -186,7 +191,7 @@
     </div>
     <div id="cy"></div>
     <div id="info">
-        <span id="info-text">Select a category to visualize its descendants in the taxonomy</span>
+        <span id="info-text">Select a taxonomy node to visualize its descendants</span>
         <a id="repo-link" href="https://github.com/raphodn/openfoodfacts-taxonomy-explorer" target="_blank" rel="noopener noreferrer">GitHub</a>
     </div>
 
@@ -194,8 +199,17 @@
         // This will be populated with actual taxonomy data
         let taxonomyData = {};
         let cy = null;
-        let currentTaxonomy = 'categories'; // 'categories' or 'ingredients'
-        const VALID_TAXONOMIES = new Set(['categories', 'ingredients']);
+        let currentTaxonomy = 'categories';
+        const TAXONOMY_ENDPOINTS = {
+            additives: 'https://world.openfoodfacts.org/data/taxonomies/additives.full.json',
+            allergens: 'https://world.openfoodfacts.org/data/taxonomies/allergens.full.json',
+            categories: 'https://world.openfoodfacts.org/data/taxonomies/categories.full.json',
+            ingredients: 'https://world.openfoodfacts.org/data/taxonomies/ingredients.full.json',
+            labels: 'https://world.openfoodfacts.org/data/taxonomies/labels.full.json',
+            nutrients: 'https://world.openfoodfacts.org/data/taxonomies/nutrients.full.json',
+            origins: 'https://world.openfoodfacts.org/data/taxonomies/origins.full.json'
+        };
+        const VALID_TAXONOMIES = new Set(Object.keys(TAXONOMY_ENDPOINTS));
         const VALID_MODES = new Set(['ancestors', 'descendants']);
 
         function normalizeTaxonomyParam(value) {
@@ -334,9 +348,7 @@
         async function loadTaxonomy(taxonomyType = 'categories') {
             setLoadingState(true, taxonomyType);
             try {
-                const endpoint = taxonomyType === 'categories' 
-                    ? 'https://world.openfoodfacts.org/data/taxonomies/categories.full.json'
-                    : 'https://world.openfoodfacts.org/data/taxonomies/ingredients.full.json';
+                const endpoint = TAXONOMY_ENDPOINTS[taxonomyType] || TAXONOMY_ENDPOINTS.categories;
                     
                 const response = await fetch(endpoint);
                 const data = await response.json();
