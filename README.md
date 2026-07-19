@@ -18,6 +18,7 @@ The app keeps state in query parameters and auto-loads from them:
 * `taxonomy`: `additives | allergens | categories | ingredients | labels | nutrients | origins`
 * `node`: taxonomy node id (example: `en:milks`)
 * `mode`: `ancestors | descendants`
+* `hop_limit`: max depth to traverse (0–5, empty = unlimited)
 
 Example: `?taxonomy=categories&node=en:milks&mode=descendants`
 

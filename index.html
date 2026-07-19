@@ -32,7 +32,8 @@
             font-size: 24px;
         }
         
-        #taxonomy-select {
+        #taxonomy-select,
+        #hop-limit {
             padding: 10px;
             font-size: 16px;
             border: 1px solid #ddd;
@@ -181,6 +182,16 @@
                 <option value="nutrients">Nutrients</option>
                 <option value="origins">Origins</option>
             </select>
+            <label for="hop-limit" style="font-size: 14px; white-space: nowrap;">Hop limit:</label>
+            <select id="hop-limit">
+                <option value="" selected></option>
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+            </select>
             <button id="visualize-ancestors-btn" class="visualize-btn" disabled>Visualize Ancestors</button>
             <button id="visualize-descendants-btn" class="visualize-btn" disabled>Visualize Descendants</button>
         </div>
@@ -200,6 +211,7 @@
         let taxonomyData = {};
         let cy = null;
         let currentTaxonomy = 'categories';
+        let hopLimit = null;
         const TAXONOMY_ENDPOINTS = {
             additives: 'https://world.openfoodfacts.org/data/taxonomies/additives.full.json',
             allergens: 'https://world.openfoodfacts.org/data/taxonomies/allergens.full.json',
@@ -236,11 +248,12 @@
             return {
                 taxonomy: normalizeTaxonomyParam(params.get('taxonomy')),
                 node: normalizeNodeParam(params.get('node')),
-                mode: normalizeModeParam(params.get('mode'))
+                mode: normalizeModeParam(params.get('mode')),
+                hop_limit: params.get('hop_limit') ? parseInt(params.get('hop_limit'), 10) : null
             };
         }
 
-        function writeUrlState({ taxonomy, node, mode }, options = {}) {
+        function writeUrlState({ taxonomy, node, mode, hop_limit }, options = {}) {
             const { replace = false } = options;
             const params = new URLSearchParams();
             const nextTaxonomy = normalizeTaxonomyParam(taxonomy || currentTaxonomy);
@@ -254,6 +267,10 @@
             if (nextNode) {
                 params.set('node', nextNode);
                 params.set('mode', nextMode);
+            }
+
+            if (hop_limit !== null && hop_limit !== undefined) {
+                params.set('hop_limit', hop_limit);
             }
 
             const nextUrl = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname;
@@ -379,20 +396,21 @@
             }
         }
         
-        // Get all descendants of a category
+        // Get all descendants of a category up to hopLimit levels (0 = only self, empty = unlimited)
         function getDescendants(categoryId) {
             const descendants = new Set();
-            const queue = [categoryId];
+            const queue = [[categoryId, 0]];
             
             while (queue.length > 0) {
-                const current = queue.shift();
+                const [current, depth] = queue.shift();
+                if (hopLimit !== null && depth >= hopLimit) continue;
                 const category = taxonomyData[current];
                 
                 if (category && category.children) {
                     category.children.forEach(child => {
                         if (!descendants.has(child) && taxonomyData[child]) {
                             descendants.add(child);
-                            queue.push(child);
+                            queue.push([child, depth + 1]);
                         }
                     });
                 }
@@ -401,20 +419,21 @@
             return Array.from(descendants);
         }
         
-        // Get all ancestors of a category
+        // Get all ancestors of a category up to hopLimit levels (0 = only self, empty = unlimited)
         function getAncestors(categoryId) {
             const ancestors = new Set();
-            const queue = [categoryId];
+            const queue = [[categoryId, 0]];
             
             while (queue.length > 0) {
-                const current = queue.shift();
+                const [current, depth] = queue.shift();
+                if (hopLimit !== null && depth >= hopLimit) continue;
                 const category = taxonomyData[current];
                 
                 if (category && category.parents) {
                     category.parents.forEach(parent => {
                         if (!ancestors.has(parent) && taxonomyData[parent]) {
                             ancestors.add(parent);
-                            queue.push(parent);
+                            queue.push([parent, depth + 1]);
                         }
                     });
                 }
@@ -569,10 +588,14 @@
         document.addEventListener('DOMContentLoaded', async function() {
             const initialState = readUrlState();
             currentTaxonomy = initialState.taxonomy;
+            hopLimit = initialState.hop_limit;
 
             initCytoscape();
             setupAutocomplete();
             document.getElementById('taxonomy-select').value = currentTaxonomy;
+            if (initialState.hop_limit !== null) {
+                document.getElementById('hop-limit').value = initialState.hop_limit;
+            }
             await loadTaxonomy(currentTaxonomy);
 
             const input = document.getElementById('category-search');
@@ -592,6 +615,24 @@
                 currentTaxonomy = this.value;
                 await loadTaxonomy(this.value);
                 writeUrlState({ taxonomy: currentTaxonomy });
+            });
+            
+            // Hop limit select
+            document.getElementById('hop-limit').addEventListener('change', function() {
+                hopLimit = this.value ? parseInt(this.value, 10) : null;
+                // Re-visualize if a category is already selected
+                const categoryId = getCategoryId();
+                if (categoryId && taxonomyData[categoryId]) {
+                    input.dataset.categoryId = categoryId;
+                    input.value = taxonomyData[categoryId].name;
+                    visualizeCategory(categoryId, 'descendants');
+                    writeUrlState({
+                        taxonomy: currentTaxonomy,
+                        node: categoryId,
+                        mode: 'descendants',
+                        hop_limit: hopLimit
+                    });
+                }
             });
             
             function getCategoryId() {
@@ -628,7 +669,8 @@
                         writeUrlState({
                             taxonomy: currentTaxonomy,
                             node: categoryId,
-                            mode: 'descendants'
+                            mode: 'descendants',
+                            hop_limit: hopLimit
                         });
                     }
                 } else {
@@ -648,7 +690,8 @@
                         writeUrlState({
                             taxonomy: currentTaxonomy,
                             node: categoryId,
-                            mode: 'ancestors'
+                            mode: 'ancestors',
+                            hop_limit: hopLimit
                         });
                     }
                 } else {
@@ -671,6 +714,11 @@
                     currentTaxonomy = state.taxonomy;
                     taxonomySelect.value = currentTaxonomy;
                     await loadTaxonomy(currentTaxonomy);
+                }
+
+                hopLimit = state.hop_limit;
+                if (state.hop_limit !== null) {
+                    document.getElementById('hop-limit').value = state.hop_limit;
                 }
 
                 if (state.node && taxonomyData[state.node]) {
